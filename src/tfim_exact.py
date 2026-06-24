@@ -5,7 +5,7 @@ from typing import Tuple
 
 
 class TFIMExact:
-    """Exact diagonalization for 1D TFIM Hamiltonian.
+    r"""Exact diagonalization for 1D TFIM Hamiltonian.
     
     H = -J \sum_i \sigma^z_i \sigma^z_{i+1} - g \sum_i \sigma^x_i
     
