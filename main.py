@@ -130,8 +130,7 @@ def analyze_results(exact_results: Dict, vmc_results: Dict) -> Dict:
                     for M, E_err in g_data:
                         print(f"    M={M:2d}: ΔE = {E_err:8.5f}")
                     
-                    # String for phase behavior
-                    m_ratios = [L * m for g, m in config.TRANSVERSE_FIELDS]
+                    # Trend across hidden-unit count
                     print(f"  Trend: {'improving' if g_data[-1][1] < g_data[0][1] else 'degrading'} "
                           f"with more hidden units")
     

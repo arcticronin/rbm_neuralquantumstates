@@ -1,8 +1,6 @@
 """Exact diagonalization for 1D transverse-field Ising model (TFIM)."""
 
 import numpy as np
-from scipy.sparse import kron, eye, diags
-from scipy.sparse.linalg import eigsh
 from typing import Tuple
 
 

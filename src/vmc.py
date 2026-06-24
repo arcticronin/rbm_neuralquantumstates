@@ -56,13 +56,14 @@ class VMCSolver:
             E_loc += -self.J * sigma[i] * sigma[i_next]
         
         # Transverse field X term: -g * <σ| σ^x_i |ψ> / <σ|ψ>
-        # On basis state |σ>, σ^x_i flips spin i
+        # On basis state |σ>, σ^x_i flips spin i, contributing the amplitude
+        # ratio Ψ(σ_flip) / Ψ(σ) (NOT the squared probability ratio).
         for i in range(self.L):
             sigma_flip = sigma.copy()
             sigma_flip[i] *= -1
-            
-            # Ratio: <σ_flip|ψ> / <σ|ψ>
-            psi_ratio = self.nqs.psi_squared_ratio(sigma, sigma_flip)
+
+            # Amplitude ratio: <σ_flip|ψ> / <σ|ψ>
+            psi_ratio = self.nqs.psi_ratio(sigma, sigma_flip)
             E_loc += -self.g * psi_ratio
         
         return E_loc
@@ -135,8 +136,8 @@ class VMCSolver:
         Returns:
             Mean energy and standard error
         """
-        configs, _ = self.sample_configs(n_samples)
-        
+        configs, _ = self.sample_configs(n_samples, n_steps=self.L)
+
         local_energies = np.array([self.local_energy(sigma) for sigma in configs])
         
         mean_E = np.mean(local_energies)
@@ -156,7 +157,7 @@ class VMCSolver:
         Returns:
             Dict with diagnostics
         """
-        configs, accept_rate = self.sample_configs(n_samples)
+        configs, accept_rate = self.sample_configs(n_samples, n_steps=self.L)
         
         # Compute local energies
         local_energies = np.array([self.local_energy(sigma) for sigma in configs])

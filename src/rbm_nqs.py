@@ -80,22 +80,45 @@ class RBMNQS:
     def psi_squared_ratio(self, sigma_old: np.ndarray, sigma_new: np.ndarray,
                           theta: Dict = None) -> float:
         """Compute |Ψ(σ_new)|^2 / |Ψ(σ_old)|^2 for efficient MC.
-        
+
         Args:
             sigma_old: Previous configuration
             sigma_new: Proposed configuration
             theta: Parameters dict
-            
+
         Returns:
             Ratio of probabilities
         """
         if theta is None:
             theta = self.theta
-        
+
         log_psi_new = self.log_psi(sigma_new, theta)
         log_psi_old = self.log_psi(sigma_old, theta)
-        
+
         return np.exp(2.0 * (log_psi_new - log_psi_old))
+
+    def psi_ratio(self, sigma_old: np.ndarray, sigma_new: np.ndarray,
+                  theta: Dict = None) -> float:
+        """Compute the amplitude ratio Ψ(σ_new) / Ψ(σ_old).
+
+        Needed for off-diagonal local-energy terms. The RBM ansatz used here
+        is real and positive, so the ratio is exp(logΨ_new - logΨ_old).
+
+        Args:
+            sigma_old: Previous configuration
+            sigma_new: Proposed configuration
+            theta: Parameters dict
+
+        Returns:
+            Amplitude ratio
+        """
+        if theta is None:
+            theta = self.theta
+
+        log_psi_new = self.log_psi(sigma_new, theta)
+        log_psi_old = self.log_psi(sigma_old, theta)
+
+        return np.exp(log_psi_new - log_psi_old)
     
     def local_magnetization(self, sigma: np.ndarray) -> float:
         """Compute local magnetization for analysis.
@@ -153,10 +176,10 @@ class RBMNQS:
                 if norm > clip_norm:
                     grad_avg[key] = grad_avg[key] * (clip_norm / norm)
         
-        # Update: θ → θ + η * ∂E/∂θ
-        # Since we use variational principle, maximize log-prob (minimize -E)
+        # Update: θ → θ - η * ∂E/∂θ  (gradient descent to minimize energy).
+        # grad_avg holds the (variational) energy gradient, so we subtract it.
         for key in self.theta:
-            self.theta[key] += learning_rate * grad_avg[key]
+            self.theta[key] -= learning_rate * grad_avg[key]
     
     def get_parameters_copy(self) -> Dict:
         """Return a deep copy of current parameters."""
