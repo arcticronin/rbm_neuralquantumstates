@@ -20,6 +20,7 @@ $$H = -J \sum_{i=1}^L \sigma_i^z \sigma_{i+1}^z - g \sum_{i=1}^L \sigma_i^x$$
 with periodic boundary conditions ($\sigma_{L+1} = \sigma_1$).
 
 **Parameters:**
+
 - $L$: number of spins (lattice size)
 - $J > 0$: Ising coupling (ferromagnetic)
 - $g > 0$: transverse field strength
@@ -29,12 +30,12 @@ with periodic boundary conditions ($\sigma_{L+1} = \sigma_1$).
 
 The TFIM exhibits a **quantum phase transition** at $g_c = J$:
 
-| Region | $g < J$ | $g = J$ | $g > J$ |
-|--------|---------|---------|---------|
-| **Phase** | Ordered | Critical | Disordered |
-| **Order** | $\langle \sigma_z \rangle \neq 0$ | Power-law | $\langle \sigma_z \rangle = 0$ |
-| **Correlations** | Ferromagnetic | Long-range | Exponential decay |
-| **Entanglement** | Area law | Enhanced | Area law |
+| Region           | $g < J$                           | $g = J$    | $g > J$                        |
+| ---------------- | --------------------------------- | ---------- | ------------------------------ |
+| **Phase**        | Ordered                           | Critical   | Disordered                     |
+| **Order**        | $\langle \sigma_z \rangle \neq 0$ | Power-law  | $\langle \sigma_z \rangle = 0$ |
+| **Correlations** | Ferromagnetic                     | Long-range | Exponential decay              |
+| **Entanglement** | Area law                          | Enhanced   | Area law                       |
 
 ### Ground State Properties
 
@@ -43,7 +44,6 @@ For large $L$, exact results (Ising + XY duality):
 - **Ordered phase ($g < J$):**
   - GS energy per spin: $e_0 \approx -J(1 + \text{const} \cdot e^{-\pi(1-g/J)})$
   - Ferromagnetic order: $m = \sqrt{1 - (g/J)^2}$ for $g/J < 1$
-  
 - **Disordered phase ($g > J$):**
   - GS energy per spin: $e_0 \approx -g + O(J/g)$
   - Spins predominantly in $x$-eigenstates; $z$-correlations exponential
@@ -62,6 +62,7 @@ For large $L$, exact results (Ising + XY duality):
 ### Definition
 
 An RBM is a bipartite graphical model with:
+
 - **Visible units** $\sigma = (\sigma_1, \ldots, \sigma_L) \in \{-1, +1\}^L$ — spin configuration
 - **Hidden units** $h = (h_1, \ldots, h_M) \in \{-1, +1\}^M$ — latent variables
 
@@ -93,10 +94,19 @@ $$\Psi_{\text{RBM}}(\sigma) \propto \exp\left(\sum_i a_i \sigma_i\right) \prod_{
 The amplitude $|\Psi(\sigma)|^2$ is identical to $P(\sigma)$ for an RBM—this is the Carleo–Troyer ansatz.
 
 **Why this works:**
+
 1. **Expressivity:** RBM can represent broad class of states (if $M$ is large)
 2. **Efficient sampling:** can sample $\sigma \sim |\Psi(\sigma)|^2$ in polynomial time via Metropolis
 3. **Differentiability:** amplitude is smooth in parameters $\theta = (a, b, W)$
 4. **Interpretation:** relates to statistical physics — RBM is a spin-glass model
+
+### Numerical Stability of $\log|\Psi|$
+
+In code, we compute $\log|\Psi|$ rather than $|\Psi|$ directly to avoid overflow. The natural form $\sum_j \log(2\cosh(x_j))$ overflows for $|x_j| \gtrsim 710$. The numerically stable equivalent is:
+
+$$\log(2\cosh(x)) = \text{logaddexp}(x, -x) = \log(e^x + e^{-x})$$
+
+which NumPy evaluates without overflow for all finite $x$. This is implemented in `RBMNQS.log_psi()` in `src/rbm_nqs.py` and in the `log_psi` function in the notebook.
 
 ---
 
@@ -128,20 +138,24 @@ For TFIM, $E_{\text{loc}}(\sigma)$ is computed by summing contributions:
 $$E_{\text{loc}}(\sigma) = \underbrace{\sum_i (-J\sigma_i\sigma_{i+1})}_{\text{ZZ terms}} + \underbrace{\sum_i \frac{\langle \sigma | (-g\sigma^x_i) | \Psi \rangle}{\langle \sigma | \Psi \rangle}}_{\text{X-flip terms}}$$
 
 The X-flip term involves evaluating $\Psi$ on configurations where spin $i$ is flipped:
-$$\text{X-flip contribution} = -g \sum_i \text{sign}(W_{ij}) \frac{\Psi(\sigma^i_{\text{flip}})}{\Psi(\sigma)}$$
+$$\text{X-flip contribution} = -g \sum_i \frac{\Psi(\sigma^i_{\text{flip}})}{\Psi(\sigma)}$$
 
-where $\sigma^i_{\text{flip}}$ has spin $i$ flipped.
+where $\sigma^i_{\text{flip}}$ has spin $i$ flipped. Note this is the **amplitude ratio** (not the probability ratio $|\Psi|^2/|\Psi|^2$) — this is the correct off-diagonal matrix element.
 
-### Energy Gradient (Natural Gradient)
+### Energy Gradient and Log-Derivative Operators
 
-Taking $\partial E / \partial \theta$ and exploiting the structure of RBM:
+Define the **log-derivative operators** $O_k(\sigma) = \partial_k \log|\Psi(\sigma)|$:
 
-$$\frac{\partial E}{\partial a_i} = \langle \sigma_i \rangle - \langle \sigma_i E_{\text{loc}} \rangle$$
-$$\frac{\partial E}{\partial b_j} = \left\langle \tanh(b_j + \sum_i W_{ij} \sigma_i) \right\rangle - \text{similar term with } E_{\text{loc}}$$
-$$\frac{\partial E}{\partial W_{ij}} = \text{correlation terms}$$
+$$O_{a_i}(\sigma) = \sigma_i$$
+$$O_{b_j}(\sigma) = \tanh\!\left(b_j + \sum_i W_{ij} \sigma_i\right)$$
+$$O_{W_{ij}}(\sigma) = \sigma_i \cdot \tanh\!\left(b_j + \sum_i W_{ij} \sigma_i\right)$$
 
-In practice, we use the **natural gradient** form (simplified in code as):
-$$\theta \to \theta - \eta \, \mathcal{F}^{-1} \nabla_\theta E$$
+The **variational energy gradient** (plain SGD direction) is then:
+$$F_k = \langle O_k \, E_{\text{loc}} \rangle - \langle O_k \rangle \langle E_{\text{loc}} \rangle$$
+
+The **Stochastic Reconfiguration** update solves $S \delta\theta = F$ where:
+$$S_{kl} = \langle O_k O_l \rangle - \langle O_k \rangle \langle O_l \rangle$$
+This is fully implemented in `VMCSolver._compute_sr_update()`.
 
 For RBMs, the Fisher metric $\mathcal{F}$ has a known structure that relates to shot-noise in MC sampling.
 
@@ -199,26 +213,47 @@ The RBM ansatz can be viewed as an **effective classical model** on this imagina
 ### Natural Gradient Descent on the NQS Manifold
 
 The **natural gradient** on the parameter manifold is:
-$$\dot{\theta} = -\eta \, \mathcal{F}^{-1}(\theta) \, \nabla_\theta E(\theta)$$
+$$\dot{\theta} = -\eta \, S^{-1}(\theta) \, F(\theta)$$
 
-where $\mathcal{F}_{ij} = \text{Cov}_{\sigma \sim |\Psi|^2}(\partial_i \log\Psi, \partial_j \log\Psi)$ is the **Fisher information matrix**.
+where:
+
+- $S_{kl} = \text{Cov}_{\sigma \sim |\Psi|^2}(O_k, O_l)$ is the **Fisher information matrix** (also called the quantum geometric tensor for real wave functions)
+- $O_k(\sigma) = \partial_k \log|\Psi(\sigma)|$ are the **log-derivative operators**
+- $F_k = \text{Cov}_{\sigma}(O_k, E_{\text{loc}}) = \langle O_k E_{\text{loc}} \rangle - \langle O_k \rangle \langle E_{\text{loc}} \rangle$ is the plain energy gradient
 
 **Interpretation:**
-- **Numerator:** $\nabla_\theta E$ points "uphill" in energy
-- **$\mathcal{F}^{-1}$:** metric tensor on the NQS manifold (re-weights parameter space for manifold geometry)
-- **Result:** steepest descent *in KL-divergence*, not in parameter space
+
+- $F$ points uphill in energy in flat parameter space
+- $S^{-1}$ re-weights directions by the curvature of the probability manifold
+- Result: steepest descent _in KL-divergence_, not in Euclidean parameter space
+
+### Stochastic Reconfiguration (SR) — Implemented in Code
+
+The **Stochastic Reconfiguration** algorithm (Sorella 1998, Carleo & Troyer 2017) is the practical implementation of the above natural gradient. It is implemented in `VMCSolver._compute_sr_update()` and `train_vmc()` (notebook):
+
+1. **Collect log-derivatives** for all $N$ MC samples into matrix $O \in \mathbb{R}^{N \times n_\theta}$
+2. **Centre:** $\delta O_i = O_i - \bar{O}$, $\delta E_i = E_i - \bar{E}$
+3. **Build Fisher matrix:** $S = \frac{1}{N} \delta O^\top \delta O + \epsilon I$
+4. **Build gradient:** $F = \frac{1}{N} \delta O^\top \delta E$
+5. **Solve:** $S\, \delta\theta = F$ (small linear system of size $n_\theta \times n_\theta$)
+6. **Update:** $\theta \leftarrow \theta - \eta\, \delta\theta$
+
+The diagonal regularisation $\epsilon I$ (controlled by `SR_REG`) is added to prevent singularity when the sample size is small relative to $n_\theta = L + M + LM$.
+
+**Comparison with plain SGD:** SGD only uses $F$ (step 4), ignoring the metric $S$. SR converges significantly faster near the critical point where the Fisher matrix is highly anisotropic.
 
 ### Stochastic Discretization & Molecular Dynamics Analogy
 
-In practice, VMC uses SGD (simpler than full natural gradient):
+In either optimizer, finite MC samples introduce noise:
 $$\theta_{t+1} = \theta_t - \eta \, \hat{g}_t$$
 
-where $\hat{g}_t$ is an estimate of $\nabla_\theta E$ from finite MC samples.
+where $\hat{g}_t$ is estimated from $N_{\text{samples}}$ configurations. In the **continuous limit**:
 
 This is equivalent to **stochastic differential equation** (in continuous limit):
 $$d\theta = -\eta \nabla_\theta E(\theta) \, dt + \sqrt{2\eta D(\theta)} \, d W_t$$
 
 where:
+
 - **Drift term:** $-\eta \nabla_\theta E$ = energy gradient
 - **Diffusion term:** $D(\theta) \sim 1/N_{\text{samples}}$ depends on MC noise
 - **$dW_t$:** standard Wiener process (random noise)
@@ -231,11 +266,13 @@ In classical MD, particles follow:
 $$m \ddot{x}_i = -\nabla_i V(x) - \gamma \dot{x}_i + F_{\text{noise}}$$
 
 where:
+
 - **$-\nabla V$:** potential gradient (the "force")
 - **$\gamma \dot{x}$:** friction/damping
 - **$F_{\text{noise}}$:** thermal noise
 
 Similarly, in parameter-space dynamics:
+
 - **$\nabla_\theta E$:** energy gradient (like force on landscape)
 - **$\eta$:** inverse "viscosity" (learning rate)
 - **MC noise:** thermal fluctuations from sampling
@@ -250,6 +287,8 @@ When the system approaches a **phase transition**, the energy landscape becomes 
 
 These are hallmarks of **glassy dynamics** and appear in our VMC study.
 
+The **integrated autocorrelation time** $\tau_{\text{int}}$ of the Metropolis chain is measured in `VMCSolver.measure_autocorrelation()` and the notebook cell _Autocorrelation Time and Critical Slowing Down_. A peak in $\tau_{\text{int}}$ near $g = J$ directly signals the phase transition.
+
 ---
 
 ## Statistical Mechanics of RBMs
@@ -260,11 +299,13 @@ Recall the RBM energy:
 $$E_{\text{RBM}}(\sigma, h) = -\sum_i a_i \sigma_i - \sum_j b_j h_j - \sum_{ij} W_{ij} \sigma_i h_j$$
 
 **Physical interpretation:**
+
 - **First term:** external field on spins
 - **Second term:** hidden-spin "internal degrees of freedom"
 - **Third term:** quenched disorder (in the spirit of spin-glasses)
 
 Via **spin-glass analogy:**
+
 - Weights $W_{ij}$ act like **quenched random couplings**
 - Hidden units act like **auxiliary spins in replica trick**
 
@@ -275,11 +316,13 @@ For large $M$ (number of hidden units), mean-field approximation gives:
 $$F_{\text{MF}}(\sigma) = -\sum_i a_i \sigma_i + M \log 2 - \langle \text{log-partition of hidden units} \rangle_{\text{MF}}$$
 
 **Predictions:**
+
 1. For small $W$ (weak coupling): paramagnetic phase
 2. For intermediate $W$: ferrimagnetic phase (mixed order)
 3. For large $W$: spin-glass phase (glassy disorder)
 
 These correspond to:
+
 - **Small hidden units:** RBM acts like effective single-spin model
 - **Large hidden units:** RBM exhibits compositional phases
 
@@ -291,6 +334,7 @@ $$S_{\text{config}} = \frac{1}{M} \log \text{(number of distinguished minima)}$$
 **Implication:** exponentially many local minima in parameter space → **hard optimization**.
 
 Observed in our study as:
+
 - Plateau in energy vs. training step
 - Non-monotonic convergence rates
 - Dependence on initialization
@@ -301,10 +345,12 @@ The **effective entropy** trapped in an RBM configuration is:
 $$S_{\text{eff}} = \frac{1}{T} \left( \langle E \rangle - F_{\text{MF}} \right)$$
 
 For large $M$:
+
 - $S_{\text{eff}}$ can become **negative** (entropy crisis)
 - Related to **compositional breakdown** — hidden units no longer independently encode features
 
 **Connection to NQS task:**
+
 - Low $S_{\text{eff}}$: hidden units are "busy" — each encodes crucial information
 - High $S_{\text{eff}}$: redundant hidden units — easy optimization
 
@@ -320,9 +366,10 @@ Unlike "glassy" phases (disordered), RBMs can exhibit a **compositional** phase 
 
 2. **Sparsity structure:** many $(i,j)$ pairs have $|W_{ij}| \ll 1$
 
-3. **Entropy remains finite:** but *concentrated* in a subset of hidden units
+3. **Entropy remains finite:** but _concentrated_ in a subset of hidden units
 
 **Relevance to TFIM:**
+
 - Ordered phase ($g < 1$): RBM learns ferromagnetic structure (few feature groups)
 - Critical region ($g \approx 1$): feature proliferation (many groups needed)
 - Disordered phase ($g > 1$): disorder-locked features (few but complex groups)

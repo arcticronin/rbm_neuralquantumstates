@@ -45,9 +45,10 @@ $$\Psi_{\text{RBM}}(\sigma) \propto \exp\Big(\sum_i a_i \sigma_i\Big) \prod_j 2\
 
 In our experiments (see [notebooks/analysis.ipynb](notebooks/analysis.ipynb)):
 
-1. **Energy convergence:** $E_{\text{RBM}}(\theta)$ monoonically decreases during training
-2. **Approaches exact:** For well-parameterized RBMs ($M \sim L$), $|E_{\text{RBM}} - E_0^exact| \to 0$
-3. **Manifold dimension:** The parameter space has dimension $\sim L + M + LM$, much smaller than Hilbert space ($\sim 2^L$)
+1. **Energy convergence:** $E_{\text{RBM}}(\theta)$ monotonically decreases during training
+2. **Approaches exact:** For well-parameterized RBMs ($M \sim L$), $|E_{\text{RBM}} - E_0^{\text{exact}}| \to 0$
+3. **Wavefunction fidelity:** Squared overlap $|\langle\Psi_{\text{RBM}}|\psi_0\rangle|^2$ (computed by full enumeration for $L \le 14$) shows a dip near the critical point, confirming that increased entanglement requires more hidden units
+4. **Manifold dimension:** The parameter space has dimension $\sim L + M + LM$, much smaller than Hilbert space ($\sim 2^L$)
 
 This demonstrates that the **RBM manifold provides a useful variational subspace** for ground-state approximation.
 
@@ -55,17 +56,17 @@ This demonstrates that the **RBM manifold provides a useful variational subspace
 
 ## Part 2: Molecular/Stochastic Dynamics & Parameter Optimization
 
-### Natural Gradient as Hamiltonian Dynamics on the Manifold
+### Stochastic Reconfiguration as Natural Gradient Dynamics
 
 The variational energy gradient is:
-$$\nabla_\theta E(\theta) = \mathbb{E}_{\sigma \sim |\Psi|^2} [(\partial_\theta \log\Psi) \cdot E_{\text{loc}}(\sigma)]$$
+$$F_k = \mathbb{E}_{\sigma \sim |\Psi|^2} [(O_k - \langle O_k \rangle)(E_{\text{loc}} - \langle E \rangle)]$$
 
-In the **natural gradient formalism**:
-$$\dot{\theta} = -\eta \, \mathcal{F}^{-1}(\theta) \, \nabla_\theta E(\theta)$$
+where $O_k(\sigma) = \partial_k \log|\Psi(\sigma)|$ are the log-derivative operators.
 
-where $\mathcal{F}_{ij} = \text{Cov}_{\sigma}(\partial_i \log\Psi, \partial_j \log\Psi)$ is the **Fisher information matrix**.
+The **Stochastic Reconfiguration** update:
+$$\theta \leftarrow \theta - \eta \, S^{-1} F, \qquad S_{kl} = \text{Cov}(O_k, O_l)$$
 
-This metric $\mathcal{F}$ has a **geometric interpretation**: it is the Riemannian metric on the probability manifold defined by $|\Psi(\theta)|^2$.
+is the **natural gradient** w.r.t. the Fisher information metric $S$. This metric is the Riemannian metric on the probability manifold defined by $|\Psi(\theta)|^2$.
 
 ### Stochastic Discretization & Langevin Dynamics
 
@@ -81,6 +82,7 @@ In the **continuous limit**:
 $$d\theta = -\eta \nabla_\theta E(\theta) \, dt + \sqrt{\frac{2\eta D(\theta)}{N_{\text{samples}}}} \, dW_t$$
 
 This is a **Langevin-type stochastic differential equation** with:
+
 - **Drift:** $-\eta \nabla_\theta E$ points downhill on the energy landscape
 - **Diffusion:** $D(\theta) \sim 1$ relates to MC sampling noise
 
@@ -90,11 +92,13 @@ In classical statistical mechanics, particles follow **Langevin equations**:
 $$m \ddot{x}_i + \gamma \dot{x}_i = F_i(x) + \xi_i(t)$$
 
 where:
+
 - **$F_i = -\nabla_i V$:** force from potential gradient
 - **$\gamma \dot{x}_i$:** friction/damping
 - **$\xi_i(t)$:** thermal noise
 
 Similarly, in parameter-space dynamics:
+
 - **Energy landscape:** $E(\theta)$ plays the role of **potential** $V(x)$
 - **Learning rate:** $\eta$ plays the role of **inverse viscosity** (friction)
 - **MC noise:** acts like **thermal fluctuations** from environment
@@ -116,29 +120,41 @@ Near a **phase transition** in the physical system (here, TFIM near $g \approx 1
 
 This **mirrors the physics** of a classical system undergoing a phase transition.
 
-### Code Implementation
+### Code Implementation: Stochastic Reconfiguration
 
-In [src/vmc.py](src/vmc.py):
+The project implements **both** plain SGD and Stochastic Reconfiguration (SR) in [src/vmc.py](src/vmc.py). SR is enabled with `use_sr=True` and is the default (`USE_SR = True` in `config.py`):
 
 ```python
-def optimize_step(self, n_samples=1000, learning_rate=0.01):
-    # Sample configurations from |Ψ|^2
-    configs, accept_rate = self.sample_configs(n_samples)
-    
-    # Compute local energies (equivalent to potential on configuration space)
-    local_energies = [self.local_energy(sigma) for sigma in configs]
-    
-    # Natural gradient: force = (E_loc - E_mean) * (∂ log Ψ / ∂ θ)
-    grad_avg = 0
-    for sigma in configs:
-        force = E_loc[sigma] - E_mean  # "Driving force" for this sample
-        grad = self.compute_gradients(sigma, self.nqs.theta)
-        grad_avg += force * grad
-    grad_avg /= n_samples
-    
-    # Update: θ → θ - η ∇E (stochastic descent)
-    self.nqs.update_parameters(grad_avg, learning_rate=learning_rate)
+# Plain SGD direction (force vector)
+F_k = (1/N) sum_i (E_i - E_mean) * O_k(sigma_i)
+
+# SR: pre-condition by inverse Fisher matrix
+S_kl = (1/N) sum_i (O_k - <O_k>) * (O_l - <O_l>)   # Fisher matrix
+S * delta_theta = F_k                                  # solve linear system
+theta -= lr * delta_theta                              # natural gradient step
 ```
+
+The Langevin SDE with the SR metric is:
+$$d\theta = -\eta \, S^{-1}(\theta) \nabla_\theta E \, dt + \sqrt{\frac{2\eta}{N}} \, dW_t$$
+
+This is Langevin dynamics with an **anisotropic diffusion tensor** $S^{-1}$, which is the correct geometry for the probability manifold.
+
+### Physical Insight: Critical Slowing Down
+
+Near a **phase transition** in the physical system (here, TFIM near $g \approx 1$):
+
+1. **Energy landscape becomes rugged:** many local minima emerge
+2. **Optimization slows down:** gradient descent gets trapped in local minima
+3. **Metropolis autocorrelation time $\tau$ diverges:** MC sampling becomes inefficient
+4. **Dynamics become "glassy":** system exhibits slow relaxation
+
+**Observable in our results** (see _Autocorrelation Time_ notebook cell):
+
+- In the **ordered phase** ($g < 1$): small $\tau$, fast convergence
+- In the **disordered phase** ($g > 1$): larger $\tau$, slower convergence
+- **Near criticality** ($g \approx 1$): peak in $\tau$, slowest convergence
+
+This **mirrors the physics** of a classical system undergoing a phase transition.
 
 ---
 
@@ -165,15 +181,16 @@ For the RBM with $N$ visible and $M$ hidden units, mean-field analysis predicts 
 
 **Predicted phases:**
 
-| Phase | $|W|$ | $M/N$ | Characteristics |
-|-------|-------|-------|-----------------|
-| **Paramagnetic** | Small | <1 | Simple, factorized structure |
-| **Ferrimagnetic** | Medium | ~1 | Mixed order, some hidden clustering |
-| **Spin glass** | Large | >1 | Complex disorder, multiple minima |
+| Phase             | $      | W   | $                                   | $M/N$ | Characteristics |
+| ----------------- | ------ | --- | ----------------------------------- | ----- | --------------- |
+| **Paramagnetic**  | Small  | <1  | Simple, factorized structure        |
+| **Ferrimagnetic** | Medium | ~1  | Mixed order, some hidden clustering |
+| **Spin glass**    | Large  | >1  | Complex disorder, multiple minima   |
 
 ### Mapping to TFIM Phases
 
 In our numerical study, we vary:
+
 - **Transverse field $g$** → changes physical phase transition in TFIM
 - **Hidden units $M$** → changes RBM complexity/parameterization
 - **Energy error $\Delta E$** → indicates fitting quality
@@ -229,6 +246,7 @@ Observable signatures in training dynamics:
 **In our code** (see [results/vmc_results.json](results/vmc_results.json)):
 
 Order parameters computed:
+
 ```json
 "order_params": {
   "mean_abs_W": 0.156,        // Average weight magnitude
@@ -269,19 +287,23 @@ where $\alpha$ depends on physical phase:
 
 **Mean weight magnitude** vs. $g$:
 
-$$\langle |W_{ij}| \rangle \sim \begin{cases}
+$$
+\langle |W_{ij}| \rangle \sim \begin{cases}
 \sim 0.1 & \text{if } g \ll 1 \text{ (ordered)} \\
 \sim 0.15-0.2 & \text{if } g \approx 1 \text{ (critical)} \\
 \sim 0.2-0.3 & \text{if } g \gg 1 \text{ (disordered)}
-\end{cases}$$
+\end{cases}
+$$
 
 **Sparsity** (fraction of $|W_{ij}| < 0.01$):
 
-$$\text{Sparsity} \approx \begin{cases}
+$$
+\text{Sparsity} \approx \begin{cases}
 30-40\% & \text{ordered} \\
 15-25\% & \text{critical} \\
 5-15\% & \text{disordered}
-\end{cases}$$
+\end{cases}
+$$
 
 **Interpretation:** Ordered phase permits efficient representations with sparse weights; disordered phase requires dense couplings.
 
@@ -289,11 +311,13 @@ $$\text{Sparsity} \approx \begin{cases}
 
 **Convergence time** (steps to reach 99% of final accuracy):
 
-$$t_{\text{conv}} \propto \begin{cases}
+$$
+t_{\text{conv}} \propto \begin{cases}
 \sim 20-30 & \text{ordered} \\
 \sim 40-60 & \text{critical} \\
 \sim 60-100 & \text{disordered}
-\end{cases}$$
+\end{cases}
+$$
 
 Related to **critical slowing down** physics: dynamics slow at phase transitions.
 
@@ -312,30 +336,30 @@ $$\kappa(W) = \frac{\sigma_{\max}(W)}{\sigma_{\min}(W)}$$
 
 ### Path Integrals → Algorithm
 
-| Theory | Implementation |
-|--------|-----------------|
-| Imaginary-time $H$ evolution | VMC energy functional $E(\theta)$ |
-| Path integral projection | Restrict to RBM manifold |
-| Ground state $\iff$ $\beta \to \infty$ | Minimize $E(\theta)$ |
-| Functional integral | Monte Carlo sampling |
+| Theory                                 | Implementation                    |
+| -------------------------------------- | --------------------------------- |
+| Imaginary-time $H$ evolution           | VMC energy functional $E(\theta)$ |
+| Path integral projection               | Restrict to RBM manifold          |
+| Ground state $\iff$ $\beta \to \infty$ | Minimize $E(\theta)$              |
+| Functional integral                    | Monte Carlo sampling              |
 
 ### Molecular/Stochastic Dynamics → Parameter Updates
 
-| Theory | Implementation |
-|--------|-----------------|
-| Langevin drift | Negative gradient $-\nabla E$ |
-| Langevin noise | MC sampling variance |
-| Natural metric | Fisher information from RBM |
+| Theory           | Implementation                         |
+| ---------------- | -------------------------------------- |
+| Langevin drift   | Negative gradient $-\nabla E$          |
+| Langevin noise   | MC sampling variance                   |
+| Natural metric   | Fisher information from RBM            |
 | Critical slowing | Convergence rate near phase transition |
 
 ### Statistical Mechanics → RBM Structure
 
-| Theory | Implementation |
-|--------|-----------------|
-| Spin-glass phases | Weight distributions and sparsity |
-| RSB transitions | Training plateaus and oscillations |
-| Phase diagram | Mean weight vs. $g$ and $M/L$ |
-| Entropy crisis | Condition number of $W$ |
+| Theory            | Implementation                     |
+| ----------------- | ---------------------------------- |
+| Spin-glass phases | Weight distributions and sparsity  |
+| RSB transitions   | Training plateaus and oscillations |
+| Phase diagram     | Mean weight vs. $g$ and $M/L$      |
+| Entropy crisis    | Condition number of $W$            |
 
 ---
 
@@ -382,7 +406,7 @@ tfim/
 
 ### Core Papers
 
-1. **Carleo, G.** (2017). *Neural Network Quantum States*. Lecture notes.
+1. **Carleo, G.** (2017). _Neural Network Quantum States_. Lecture notes.
    - Full derivations of RBM ansatz and VMC
 
 2. **Carleo, G. & Troyer, M.** (2017). Science **355**, 602-606.
@@ -396,13 +420,13 @@ tfim/
 
 ### Textbooks & Reviews
 
-- **Landau, L. D. & Lifshitz, E. M.** *Statistical Physics* (Part 1).
+- **Landau, L. D. & Lifshitz, E. M.** _Statistical Physics_ (Part 1).
   - Foundation for phase transitions and critical phenomena
 
 - **Mehta, P., et al.** (2019). Physics Reports **810**, 1-124.
   - "A high-bias, low-variance introduction to Machine Learning for Physicists"
 
-- **Sachdev, S.** (2011). *Quantum Phase Transitions*.
+- **Sachdev, S.** (2011). _Quantum Phase Transitions_.
   - TFIM in depth, quantum critical phenomena
 
 ### Code References
