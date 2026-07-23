@@ -1,0 +1,524 @@
+= Results
+
+== Experiment Setup: Paper Reproduction
+
+=== System parameters
+
+#align(center)[
+  #table(
+    columns: 2,
+    table.header([*Parameter*], [*Value*]),
+      [Visible units $N$], [12 in this reproduction; 28 in the paper],
+    [Hidden ratio $alpha = M/N$], [3],
+      [Hidden units $M = alpha N$], [36 for $N=12$; 84 for $N=28$],
+      [Total parameters], [480 for $N=12$; 2464 for $N=28$],
+    [Learning rate $eta$], [0.01],
+    [SR regularisation $epsilon$], [0.001],
+      [Epochs], [1000 here; 2000+ in the paper],
+    [Sampler], [Metropolis (h>0) + Parallel Tempering (h=0, 16 chains)]
+  )
+]
+
+=== Transverse fields swept
+
+$ h in {0.0, 0.6, 1.0, 1.4, 2.0} $
+
+Spanning ferromagnet $->$ critical $->$ paramagnet
+
+
+=== QFM 
+QFM spectrum has been recorded during training, to watch geometry evolve
+
+
+
+
+== Numerical Results I: SGD vs SR
+
+=== Setup
+
+$L=8$, $h=1.0$ (critical point), $M=8$, 80 epochs, 300 samples.
+
+=== Results
+
+#align(center)[
+  #table(
+    columns: 3,
+    table.header([*Optimizer*], [*Final Energy*], [$Delta E = E - E_0$]),
+    [*SGD* (plain gradient)], [−10.057], [+0.194],
+    [*SR* (natural gradient)], [−10.248], [+0.003]
+  )
+]
+
+#figure(
+  image("results/paper_energy_convergence.png", width: 96%)
+)
+
+About *60x smaller final energy error* from respecting the Fisher geometry.
+
+=== What the plots show
+
+- *Left panel:* SGD oscillates and stagnates; SR descends smoothly to the exact energy
+- *Right panel (log scale):* SR error decays monotonically; SGD error plateaus at $tilde 0.2$
+
+=== Why such a large difference at the critical point?
+
+At $h=1.0$, the QFM has a *dense, broadly distributed spectrum* — the parameter space has many directions of similar importance. Plain SGD treats all directions equally; SR identifies the natural gradient direction in this curved space.
+
+
+
+
+ 
+== Numerical Results II: QFM Eigenspectrum
+
+_Core result from Park & Kastoryano (2020): the QFM eigenspectrum is the primary physics diagnostic of the learned NQS geometry._
+=== Key measurements ($N=12, alpha=3=M/N$)
+
+#align(center)[
+  #table(
+    columns: 4,
+    table.header([$h$], [*Phase*], [*Non-zero eigenvalues*], [*Interpretation*]),
+      [0.0], [FM (frozen sampler)], [0 / 480], [Metropolis chain collapsed; sampled QFM becomes trivial],
+    [0.6], [FM (ordered)], [71 / 480], [*Rank-deficient* (14.8% populated)],
+    [1.0], [Critical], [480 / 480], [*Dense, exponential decay* (100% populated)],
+    [1.4], [PM], [480 / 480], [Nearly full, kink visible],
+    [2.0], [PM], [480 / 480], [*Fully populated*]
+  )
+]
+
+*Total parameters:* $N + M + N M = 12 + 36 + 432 = 480$
+
+*Symmetry kink:* $N(N+1)/2 = 78$ (visible in converged spectra for h=1.0, 1.4, 2.0)
+
+#figure(
+  image("results/paper_qfm_converged.png", width: 80%)
+)
+
+=== Three signatures (all confirmed numerically):
+
+*1. Rank deficiency in ordered phases* ($h < 1$)
+
+- $S$ has only $O(N)$ significant eigenvalues
+- At N=12: 71/480 (14.8%) for h=0.6, showing the wavefunction lives in a low-dimensional parameter subspace
+- Learning is straightforward (fewer active directions)
+
+*2. Dense exponential decay at criticality* ($h approx 1$)
+
+- All 480 eigenvalues non-zero at N=12 (100% populated), smoothly decaying
+- The optimizer must balance all parameter directions simultaneously
+- Learning is slow and the natural gradient is ill-conditioned (condition number ~$10^11$)
+
+*3. Symmetry kink at $N(N+1)/2 = 78$*
+
+- In the converged critical/PM spectra, a clear change of slope appears near eigenvalue index 78
+- This matches the paper's $N(N+1)/2$ count for the symmetry-related sector of parameter space
+- It is consistent with the global *$ZZ_2$ symmetry* $sigma_i -> -sigma_i$ of the TFIM Hamiltonian
+
+== QFM Spectrum Across Phases
+
+_The converged QFM spectrum changes sharply across the TFIM phase diagram, making it a direct diagnostic of the learned state's geometry._
+
+#figure(
+  image("results/paper_qfm_converged.png", width: 55%)
+)
+
+#align(center)[
+  #table(
+    columns: 3,
+    table.header([*Phase*], [*Spectrum*], [*Interpretation*]),
+    [Ferromagnet ($h=0.6$)], [Rank-deficient (71/480)], [Few active directions; simple ordered state],
+    [Critical ($h=1.0$)], [Dense exponential (480/480)], [All directions matter; hardest regime to optimize],
+    [Paramagnet ($h=2.0$)], [Full spectrum + kink at 78], [$ZZ_2$ symmetry partitions parameter space]
+  )
+]
+
+#v(0.8em)
+
+*Takeaway:* QFM eigenspectrum reveals phase structure, raw RBM weights $W_(i j)$ do *not* reliably encode the underlying physics
+
+ 
+== Numerical Results III: Universal Initial Dynamics
+
+=== Claim (Park & Kastoryano, 2020)
+
+#quote[
+  _At random initialisation (before any SR step), the QFM spectrum is universal — nearly identical for all values of $h$, regardless of phase._
+]
+
+=== Why universality holds
+
+At initialisation, parameters are tiny ($tilde 0.01$), so:
+$ log|Psi_theta(sigma)| approx "const" quad forall sigma $
+
+The log-derivative operators $O_alpha(sigma)$ are therefore almost phase-independent, so the empirical covariance $S$ has nearly the same low-rank structure for all $h$ at very early times.
+
+=== Numerical confirmation ($N=8$, after 1 SR step)
+
+#align(center)[
+  #table(
+    columns: 3,
+    table.header([$h$], [*Non-zero eigenvalues*], [*Max eigenvalue*]),
+      [0.5], [6], [$5.291 times 10^0$],
+      [1.0], [6], [$5.289 times 10^0$],
+      [2.0], [6], [$5.287 times 10^0$]
+  )
+]
+
+*All three cases produce virtually identical spectra* — the universality is exact at this scale.
+
+=== Consequence
+
+Physical information *only enters the QFM as training progresses*. The spectrum reorganises from a universal initial shape into a phase-specific converged shape. Watching this reorganisation is like watching the network "discover" the physics of the system.
+
+#figure(
+  image("results/paper_qfm_evolution.png"),
+)
+
+
+ 
+== Numerical Results IV: Eigenvector Entanglement
+
+=== Setup
+
+For each converged QFM eigenvector $v_k$, extract the W-block (size $L times M$), reshape to matrix $A_k$, compute SVD $A_k = U Sigma V^T$, and compute the *von Neumann entropy*:
+
+$ S_E (v_k) = -sum_i lambda_i log lambda_i, quad lambda_i = (s_i^2) / (sum_j s_j^2) $
+
+This measures entanglement between visible and hidden parameter directions in eigenvector $v_k$.
+
+=== Key finding (confirmed numerically)
+
+*Large eigenvalues -> low entanglement:*
+
+- The 5–10 largest eigenvalues correspond to eigenvectors with $S_E approx 0.0 - 0.5$
+- These directions are dominated by simple, weakly entangled parameter deformations
+
+*Small eigenvalues -> high entanglement:*
+
+- The bulk of eigenvalues (small) have $S_E approx 1.5 - 2.0$
+- Physical correlations are encoded in these directions — wide, flat valleys of the parameter landscape
+
+*Implication:* SR naturally decomposes learning into:
+
+1. Fast, easy directions (large eigenvalues, low entanglement) — handle bias corrections
+2. Slow, correlated directions (small eigenvalues, high entanglement) — encode physical correlations in stable, robust flat valleys
+
+#figure(
+  image("results/paper_entanglement.png"),
+)
+
+
+ 
+
+ 
+
+ 
+== Slide 21 — Energy Convergence Results
+
+=== Summary table ($N=12$)
+
+#align(center)[
+  #table(
+    columns: 5,
+    table.header([$h$], [*Phase*], [$E_0$ (exact)], [$E_"VMC"$], [$Delta E$]),
+    [0.0], [FM], [−12.00000], [−12.00000], [*+0.00000*],
+    [0.6], [FM], [−13.10720], [−13.10605], [+0.00115],
+    [1.0], [Critical], [−15.32260], [−15.32163], [+0.00097],
+    [1.4], [PM], [−19.02530], [−19.02559], [−0.00029],
+    [2.0], [PM], [−25.52510], [−25.52492], [+0.00018]
+  )
+]
+
+All $|Delta E| < 0.0012$ — *excellent* agreement with exact diagonalization. Energy per spin errors all $< 0.0001$.
+
+=== Convergence speed by phase
+
+- *PM ($h=2.0$):* fastest overall convergence among the non-frozen runs
+- *Critical ($h=1.0$):* slowest non-trivial case — dense QFM makes SR ill-conditioned
+- *FM ($h=0.0$):* reaches the exact energy, then the plain Metropolis chain freezes
+- *FM ($h=0.6$):* converges more slowly than the paramagnetic runs because sampling is harder in the ordered phase
+
+*Sampling lesson:* ordered phases are limited more by sampler mixing than by ansatz expressivity.
+
+#figure(
+  image("results/paper_energy_convergence.png"),
+)
+
+
+
+ 
+== Connection to Discussed Topics
+
+=== Path Integrals and Variational Projection
+
+$ E(theta) = (chevron.l Psi_theta | H | Psi_theta chevron.r) / (chevron.l Psi_theta | Psi_theta chevron.r) >= E_0 $
+
+- The Euclidean path integral $integral cal(D)[Psi] e^(-S_E[Psi])$ projects onto the ground state
+- The RBM restricts this to a variational subspace
+- Minimizing $E(theta)$ = variational projection onto the NQS manifold
+- SR update = short imaginary-time evolution projected back onto the manifold
+
+=== Stochastic Dynamics and Molecular Dynamics
+
+The SR update with MC noise:
+$ d theta approx -eta S^(-1) nabla_theta E d t + "noise" $
+
+This is a *Langevin-like* dynamics in parameter space with geometry set by $S$. Near phase transitions, the QFM becomes broadly distributed (dense spectrum, large condition number) $->$ optimization slows down in parameter space, distinct from but analogous to sampler critical slowing down.
+
+=== Statistical Mechanics of RBMs
+
+The RBM energy functional:
+$ cal(E)(sigma, h) = -sum_i a_i sigma_i - sum_j b_j h_j - sum_(i j) W_(i j) sigma_i h_j $
+
+maps to a *bipartite spin-glass* model. The QFM eigenspectrum is the physical diagnostic:
+
+- Ordered phase $->$ rank-deficient $S$ (simple ground state)
+- Critical point $->$ dense, exponential $S$ (maximal complexity)
+- Disordered phase $->$ $S$ with $ZZ_2$ symmetry kink
+
+
+== Slide 23 — Summary of Key Results
+
+=== Paper findings reproduced
+
+#align(center)[
+  #table(
+    columns: 2,
+    table.header([*Claim*], [*Numerical evidence (N=12)*]),
+    [Universal early-time QFM spectrum], [Early spectra across phases lie almost on top of each other before separating during training],
+    [Rank deficiency in ordered phase], [$h=0.6$: 71 / 480 non-zero (14.8% populated, down from 25% at N=8)],
+    [Dense exponential at criticality], [$h=1.0$: 480 / 480 populated (100%, up from 82% at N=8)],
+    [Symmetry kink at $N(N+1)/2 = 78$], [Visible kink in PM and critical converged spectra],
+    [Large eigenvalues = low entanglement], [Confirmed in all 5 phases],
+    [Raw weights don't encode physics], [Weight statistics show ambiguous trends]
+  )
+]
+
+*Scaling observation:* Larger systems (N=12 vs N=8) show *stronger* phase signatures — ordered phase becomes more rank-deficient (lower %), critical phase becomes fully populated.
+
+=== Supplementary analyses (not in paper)
+
+#align(center)[
+  #table(
+    columns: 2,
+    table.header([*Analysis*], [*Finding*]),
+    [SGD vs SR at criticality], [SR: $Delta E = 0.003$, SGD: $Delta E = 0.19$ — about 60x smaller error],
+    [MCMC autocorrelation], [$tau$ peaks at $h approx 0.75$ (finite-size shift of critical point)],
+    [Wavefunction fidelity], [$M=2$ shows low fidelity in FM phase; $M=8$ perfect everywhere],
+    [Energy error heatmap], [Elevated errors near $h approx 1$ for small $M/L$]
+  )
+]
+
+
+
+
+
+= Backup Slides
+== MCMC Autocorrelation Time (Supplementary)
+
+
+#quote[
+  _Not a paper result — supplementary connection to Langevin dynamics._
+]
+
+=== Setup
+
+Measure integrated autocorrelation time $tau_"int"$ of the *magnetisation* observable $|m(sigma)| = |sum_i sigma_i|/L$ along a Metropolis chain on the trained RBM.
+
+$ tau_"int" = (1)/(2) + sum_(t=1)^infinity (C(t))/(C(0)), quad C(t) = chevron.l m(t_0) m(t_0+t) chevron.r - chevron.l m chevron.r^2 $
+
+*Why magnetisation, not $E_"loc"$?* A converged RBM has near-zero variance in $E_"loc"$ — the energy autocorrelation appears short even when the chain is frozen. The magnetisation is sensitive to domain-wall crossings, which is exactly what slows down near criticality.
+
+=== Numerical results ($N=8, alpha=1, "seed"=7$)
+
+#align(center)[
+  #table(
+    columns: 2,
+    table.header([$h$], [$tau$ (MC steps)]),
+    [0.50], [9.16],
+    [*0.75*], [*9.57* (peak)],
+    [1.00], [8.99],
+    [1.25], [7.55],
+    [1.50], [6.10],
+    [2.00], [3.46]
+  )
+]
+
+Peak at $h approx 0.75$ (slightly below $h_c = 1$) — consistent with the finite-size pseudo-critical shift.
+
+=== Connection to Langevin dynamics
+
+Near the phase transition, the Metropolis chain satisfies a *stochastic dynamics equation* analogous to overdamped Langevin dynamics. The diverging autocorrelation time mirrors critical slowing down in classical MD simulations.
+
+
+
+ 
+== Wavefunction Fidelity (Supplementary)
+
+#quote[
+  _Not a paper result — supplementary test of ansatz expressivity._
+]
+
+=== Definition
+
+$ cal(F) = |chevron.l Psi_"RBM" | Psi_0 chevron.r|^2 $
+
+Computed by full enumeration over all $2^L$ states (feasible for $L <= 14$).
+
+*Why fidelity* $>$ *energy?* Energy is a single scalar; a structurally wrong wavefunction can still have low energy. Fidelity measures exact structural overlap.
+
+=== Numerical results ($N=8$)
+
+#align(center)[
+  #table(
+    columns: 3,
+    table.header([$h$], [$M=2$ (sparse, $M/L=0.25$)], [$M=8$ (unit-density)]),
+    [0.50], [0.50], [1.00],
+    [0.75], [0.51], [1.00],
+    [*1.00*], [*0.95*], [*1.00*],
+    [1.25], [0.94], [1.00],
+    [1.50], [0.94], [1.00],
+    [2.00], [0.96], [1.00]
+  )
+]
+
+*Observation:* The sparse ($M=2$) RBM struggles most in the ferromagnetic phase ($h < 1$), not at the critical point. This is largely an *optimization failure* (the MCMC sampler freezing in local minima), as an RBM can theoretically encode a GHZ state with very few hidden units. Unit-density RBM achieves $cal(F) = 1$ everywhere at $N=8$.
+
+ 
+== Energy Error Heatmap (Supplementary)
+
+#quote[
+  _Not a paper result — supplementary visualisation of how ansatz size and phase jointly determine accuracy._
+]
+
+=== Setup
+
+Sweep over $h in {0.5, 0.75, 1.0, 1.25, 1.5, 2.0}$ and $M/L in {0.5, 1.0, 1.5, 2.0}$.
+
+*Color (log scale):* $|delta E| = |E_"VMC" - E_0|$ — brighter = worse approximation.
+
+=== What to look for
+
+- *Row (M/L):* more hidden units = more expressive ansatz = smaller error
+- *Column (h):* near-critical region shows elevated error for small $M/L$
+- *Connection to QFM:* at $h approx 1$, the Fisher spectrum is broadly distributed -> optimizer needs more parameter directions -> more hidden units required
+
+*Ferromagnetic region ($h < 1$) also shows elevated error* — caused by the frozen Metropolis chain (acceptance $tilde 3 - 5%$), not by intrinsic complexity.
+
+ 
+
+== The h=0 Frozen Chain Problem
+
+=== What happens at $h=0$
+
+The Hamiltonian $H = -J sum_i sigma_i^z sigma_(i+1)^z$ is purely diagonal. \
+Ground-state manifold: the two ferromagnetic product states $|arrow.t arrow.t dots.c arrow.t chevron.r$ and $|arrow.b arrow.b dots.c arrow.b chevron.r$ are degenerate.
+
+The RBM correctly learns this state ($delta E = 0$), but concentrates all probability on *one configuration*. Local spin-flip Metropolis then rejects every proposal:
+
+$ A(sigma -> sigma') = min(1, (|Psi_theta(sigma')|^2) / (|Psi_theta(sigma)|^2)) approx min(1, e^(-delta)) approx 0 quad (delta >> 1) $
+
+*Acceptance rate drops to 0.000 at epoch $tilde 150$.* All QFM samples are identical $->$ $S approx 0 ->$ 0 non-zero eigenvalues.
+
+=== Fix: Parallel Tempering
+
+Run $K$ chains at inverse temperatures $beta_k = k/K$, $k=1, dots, K$:
+
+#align(center)[
+  #table(
+    columns: 4,
+    table.header([*Chain*], [$beta_k$], [*Distribution*], [*Role*]),
+    [Chain 1 (hottest)], [$1/K$], [$prop |Psi_theta|^(2/K) approx$ uniform], [Explores freely],
+    [$dots.v$], [$dots.v$], [$dots.v$], [$dots.v$],
+    [Chain $K$ (coldest)], [$1$], [$prop |Psi_theta|^2$], [Physical distribution]
+  )
+]
+
+*Swap acceptance* between adjacent chains $c$ (hotter, $beta_c$) and $c+1$ (colder, $beta_(c+1)$):
+$ A_"swap" = min(1, exp(2(beta_c - beta_(c+1))(log|Psi_theta(sigma_(c+1))| - log|Psi_theta(sigma_c)|))) $
+
+Hot chains tunnel freely between ferromagnetic domains and pass diverse configurations to the cold chain via swaps.
+
+*Paper recipe:* $K = 16$ chains, $beta_k = k/16$ for $k = 1, dots, 16$.
+
+=== Result with PT ($N=12, h=0$)
+
+#align(center)[
+  #table(
+    columns: 4,
+    table.header([*Sampler*], [*Final* $delta E$], [*Final QFM non-zero*], [*Cold chain acc.*]),
+    [Plain Metropolis], [0.000], [0 / 480], [*0.000* (frozen)],
+      [Parallel Tempering], [approx +0.004], [10 / 480], [0.000],
+    [*Exact enumeration*], [0.000], [*rank-1*], [N/A]
+  )
+]
+
+*Note:* For $N <= 14$, exact QFM computation from full $2^N$-state enumeration is the most reliable approach for $h=0$. At N=12, PT successfully breaks the frozen chain even though cold-chain acceptance remains very low.
+
+#figure(
+  image("results/paper_pt_fix_h0.png", width: 96%)
+)
+
+== Appendix A — Formula Reference
+
+=== RBM Log-Amplitude
+
+$ log Psi_theta(sigma) = sum_i a_i sigma_i + sum_j log(2 cosh(b_j + sum_i W_(i j) sigma_i)) $
+
+=== Log-Derivative Operators
+
+$ O_(a_i) = sigma_i quad O_(b_j) = tanh(chi_j) quad O_(W_(i j)) = sigma_i tanh(chi_j) $
+
+=== Quantum Fisher Matrix
+
+$ S_(alpha beta) = 1/N_s sum_k overline(O)_alpha(sigma^((k)))^ast overline(O)_beta(sigma^((k))), quad overline(O)_alpha = O_alpha - chevron.l O_alpha chevron.r $
+
+=== SR Update
+
+$ delta = (S + epsilon I)^(-1) F, quad F_alpha = "Cov"(O_alpha, E_"loc") $
+
+=== Local Energy (TFIM)
+
+$ E_"loc"(sigma) = -J sum_i sigma_i sigma_(i+1) - h sum_i e^(log Psi_theta(sigma^((i))_"flip") - log Psi_theta(sigma)) $
+
+=== Metropolis Acceptance
+
+$ A(sigma -> sigma') = min(1, e^(2[log|Psi_theta(sigma')| - log|Psi_theta(sigma)|])) $
+
+=== Parallel Tempering Swap Acceptance
+
+$ A_"swap"(c, c+1) = min(1, e^(2(beta_c - beta_(c+1))[log|Psi_theta(sigma_(c+1))| - log|Psi_theta(sigma_c)|])) $
+
+=== Eigenvector Entanglement Entropy
+
+$ S_E(v_k) = -sum_i lambda_i log lambda_i, quad lambda_i = (s_i^2) / (sum_j s_j^2) $
+
+=== Integrated Autocorrelation Time
+
+$ tau_"int" = 1/2 + sum_(t=1)^infinity (C(t)) / (C(0)), quad C(t) = chevron.l m(t_0) m(t_0+t) chevron.r - chevron.l m chevron.r^2 $
+
+#pagebreak()
+=== Key functions in src/complex_rbm.py
+#align(center)[ #table( columns: 2, table.header([*Function*], [*Purpose*]), [init_rbm(N, M, ...)], [Initialise parameters (real or complex)], [log_psi(σ, θ)], [Stable log-amplitude], [compute_gradients(σ, θ)], [Log-derivative operators Oa​lpha], [metropolis_sampler(...)], [Standard Metropolis-Hastings], [parallel_tempering_sampler(...)], [PT with K temperature replicas], [local_energy_tfim(σ, θ, N, h)], [TFIM local energy], [build_qfm(configs, θ)], [Build QFM matrix S], [qfm_spectrum(S)], [Eigendecompose S (descending)], [eigenvector_entanglement(v, N, M)], [von Neumann entropy of W-block], [sr_update(configs, E_locs, θ, ε)], [SR natural gradient step] ) ]
+
+
+== Appendix C — Scaling to N=28 (Paper Regime)
+
+To reproduce the full paper results, change `N=8` to `N=28` in the hyperparameters cell.
+
+#align(center)[
+  #table(
+    columns: 4,
+    table.header([*Quantity*], [*$N=8$*], [*$N=12$*], [*$N=28$*]),
+    [Hilbert space $2^N$], [256], [4096], [$2.7 times 10^8$],
+    [Hidden units $M = 3N$], [24], [36], [84],
+    [Parameters], [224], [480], [2464],
+    [QFM matrix], [$224 times 224$], [$480 times 480$], [$2464 times 2464$],
+    [Symmetry kink $N(N+1)/2$], [36], [78], [406],
+    [Epochs (used)], [300], [1000], [2000+],
+    [Parallel tempering chains], [16], [16], [16],
+    [Runtime], [$tilde 10$ min], [$tilde 1.5$ hours], [$tilde$ hours]
+  )
+]
+
+Additional requirement for N=28: *parallel tempering is mandatory* for the ferromagnetic phases. Exact enumeration for QFM is not feasible; only PT-collected samples can be used.
+
